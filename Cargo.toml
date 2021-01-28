@@ -13,6 +13,7 @@ repository = "https://github.com/TotalKrill/mqtt-recorder-rs"
 #rumqttc = {git = "https://github.com/bytebeamio/rumqtt.git", branch = "master"}
 chrono = "0.4"
 log = { version = "0.4"}
+#rumqttc = "0.5.0"
 rumqttc = "0.0.7"
 serde = {version = "1", features = ["derive"]}
 serde_json = "1.0"
@@ -20,3 +21,4 @@ tokio = { version = "0.2", features = ["full", "macros"]}
 base64 = "0.13"
 structopt = { version = "0.3", features = [ "paw" ] }
 paw = "1.0"
+simple_logger = "1.11"

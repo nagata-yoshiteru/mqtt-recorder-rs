@@ -1,9 +1,8 @@
 use log::*;
-use rumqttc::{
-    matches, EventLoop, Incoming, MqttOptions, Publish, QoS, Request, Sender, Subscribe,
-};
+use rumqttc::{EventLoop, Incoming, MqttOptions, QoS, Request, Subscribe};
 
 use serde::{Deserialize, Serialize};
+use simple_logger::SimpleLogger;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -14,6 +13,9 @@ use structopt::StructOpt;
 #[structopt(name = "mqtt-recorder", about = "mqtt recorder written in rust")]
 
 struct Opt {
+    #[structopt(short, long, default_value = "1")]
+    verbose: u32,
+
     #[structopt(short, long, default_value = "localhost")]
     address: String,
 
@@ -50,6 +52,19 @@ async fn main() {
         format!("mqttlog-{}", now).into()
     };
 
+    match opt.verbose {
+        1 => {
+            let _e = SimpleLogger::new().with_level(LevelFilter::Info).init();
+        }
+        2 => {
+            let _e = SimpleLogger::new().with_level(LevelFilter::Debug).init();
+        }
+        3 => {
+            let _e = SimpleLogger::new().with_level(LevelFilter::Trace).init();
+        }
+        0 | _ => {}
+    }
+
     let mut log_file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -64,11 +79,9 @@ async fn main() {
 
     loop {
         let res = eventloop.poll().await;
-        info!("{:?}", res);
         if let Ok((Some(Incoming::ConnAck(_)), _)) = res {
-            // Send subscriptions into MqttEventloop
+            info!("Connected to: {}:{}", opt.address, opt.port);
 
-            info!("subscribing to distances");
             let subscription = Subscribe::new("#", QoS::AtLeastOnce);
             let _ = requests_tx.send(Request::Subscribe(subscription)).await;
 
@@ -79,21 +92,22 @@ async fn main() {
                         QoS::AtLeastOnce => 1,
                         QoS::ExactlyOnce => 2,
                     };
+
                     let msg = MqttMessage {
                         time: SystemTime::now()
                             .duration_since(SystemTime::UNIX_EPOCH)
                             .unwrap()
                             .as_secs_f64(),
-                        qos: qos,
                         retain: publish.retain,
                         topic: publish.topic.clone(),
                         msg_b64: base64::encode(&*publish.payload),
+                        qos,
                     };
 
                     let serialized = serde_json::to_string(&msg).unwrap();
                     writeln!(log_file, "{}", serialized).unwrap();
-                    println!("{:?}", publish);
-                    // Do something
+
+                    debug!("{:?}", publish);
                 }
             }
         }
