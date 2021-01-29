@@ -31,10 +31,6 @@ struct Opt {
     // Mode to run software in
     #[structopt(subcommand)]
     mode: Mode,
-
-    // The file to either read from, or write to
-    #[structopt(short, long, parse(from_os_str))]
-    filename: PathBuf,
 }
 
 #[derive(Debug, StructOpt)]
@@ -53,6 +49,9 @@ pub struct RecordOptions {
     #[structopt(short, long, default_value = "#")]
     // Topic to record, can be used multiple times for a set of topics
     topic: Vec<String>,
+    // The file to write mqtt messages to
+    #[structopt(short, long, parse(from_os_str))]
+    filename: PathBuf,
 }
 
 #[derive(Debug, StructOpt)]
@@ -60,6 +59,9 @@ pub struct ReplayOtions {
     #[structopt(short, long, default_value = "1.0")]
     // Topic to record
     speed: f64,
+    // The file to read replay values from
+    #[structopt(short, long, parse(from_os_str))]
+    filename: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -81,7 +83,6 @@ async fn main() {
         .as_millis();
 
     let servername = format!("{}-{}", "mqtt-recorder-rs", now);
-    let filename = opt.filename;
 
     match opt.verbose {
         1 => {
@@ -102,13 +103,16 @@ async fn main() {
     let mut eventloop = EventLoop::new(mqttoptions, 20 as usize);
     let requests_tx = eventloop.requests_tx.clone();
 
-    debug!("{:?}", filename);
-
     // Enter recording mode and open file readonly
     match opt.mode {
         Mode::Replay(replay) => {
             let mut file = fs::OpenOptions::new();
-            let file = file.read(true).create_new(false).open(filename).unwrap();
+            debug!("{:?}", replay.filename);
+            let file = file
+                .read(true)
+                .create_new(false)
+                .open(&replay.filename)
+                .unwrap();
 
             // Sends the recorded messages
             tokio::spawn(async move {
@@ -145,19 +149,23 @@ async fn main() {
 
             // run the eventloop forever
             loop {
-                let _res = eventloop.poll().await;
+                let _res = eventloop.poll().await.unwrap();
             }
         }
         // Enter recording mode and open file writeable
         Mode::Record(record) => {
             let mut file = fs::OpenOptions::new();
-            let mut file = file.write(true).create_new(true).open(filename).unwrap();
+            let mut file = file
+                .write(true)
+                .create_new(true)
+                .open(&record.filename)
+                .unwrap();
 
             loop {
-                let res = eventloop.poll().await;
+                let res = eventloop.poll().await.unwrap();
 
                 match res {
-                    Ok(Event::Incoming(Incoming::Publish(publish))) => {
+                    Event::Incoming(Incoming::Publish(publish)) => {
                         let qos = match publish.qos {
                             QoS::AtMostOnce => 0,
                             QoS::AtLeastOnce => 1,
@@ -180,7 +188,7 @@ async fn main() {
 
                         debug!("{:?}", publish);
                     }
-                    Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
+                    Event::Incoming(Incoming::ConnAck(_connect)) => {
                         info!("Connected to: {}:{}", opt.address, opt.port);
 
                         for topic in &record.topic {
