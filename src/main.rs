@@ -62,15 +62,6 @@ pub struct ReplayOtions {
     speed: f64,
 }
 
-//use structopt::clap::arg_enum;
-// arg_enum! {
-//     #[derive(Debug)]
-//     pub enum Mode {
-//         Record(RecordOptions),
-//         Replay(ReplayOtions),
-//     }
-// }
-
 #[derive(Serialize, Deserialize)]
 struct MqttMessage {
     time: f64,
@@ -112,11 +103,14 @@ async fn main() {
     let requests_tx = eventloop.requests_tx.clone();
 
     debug!("{:?}", filename);
+
+    // Enter recording mode and open file readonly
     match opt.mode {
         Mode::Replay(replay) => {
             let mut file = fs::OpenOptions::new();
             let file = file.read(true).create_new(false).open(filename).unwrap();
 
+            // Sends the recorded messages
             tokio::spawn(async move {
                 let mut previous = -1.0;
                 // text
@@ -149,10 +143,12 @@ async fn main() {
                 }
             });
 
+            // run the eventloop forever
             loop {
                 let _res = eventloop.poll().await;
             }
         }
+        // Enter recording mode and open file writeable
         Mode::Record(record) => {
             let mut file = fs::OpenOptions::new();
             let mut file = file.write(true).create_new(true).open(filename).unwrap();
