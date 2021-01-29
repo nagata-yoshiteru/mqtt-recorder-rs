@@ -28,8 +28,7 @@ struct Opt {
     #[structopt(short, long, default_value = "1883")]
     port: u16,
 
-    // The mode this program will run under, recording or replaying data
-    //#[structopt(long, possible_values = &Mode::variants(), case_insensitive = true)]
+    // Mode to run software in
     #[structopt(subcommand)]
     mode: Mode,
 
@@ -40,12 +39,12 @@ struct Opt {
 
 #[derive(Debug, StructOpt)]
 pub enum Mode {
-    #[structopt(name = "record")]
     // Records values from an MQTT Stream
+    #[structopt(name = "record")]
     Record(RecordOptions),
 
-    #[structopt(name = "replay")]
     // Replay values from an input file
+    #[structopt(name = "replay")]
     Replay(ReplayOtions),
 }
 
