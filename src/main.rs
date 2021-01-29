@@ -1,30 +1,76 @@
 use log::*;
-use rumqttc::{EventLoop, Incoming, MqttOptions, QoS, Request, Subscribe};
+use rumqttc::{Event, EventLoop, Incoming, MqttOptions, Publish, QoS, Request, Subscribe};
 
 use serde::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
 use std::fs;
 use std::io::Write;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 use std::time::SystemTime;
 use structopt::StructOpt;
+// use tokio::fs;
+// use tokio::io::AsyncBufReadExt;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "mqtt-recorder", about = "mqtt recorder written in rust")]
 
 struct Opt {
+    // The verbosity of the program
     #[structopt(short, long, default_value = "1")]
     verbose: u32,
 
+    // The address to connect to
     #[structopt(short, long, default_value = "localhost")]
     address: String,
 
+    // The port to connect to
     #[structopt(short, long, default_value = "1883")]
     port: u16,
 
-    #[structopt(parse(from_os_str))]
-    outputfile: Option<PathBuf>,
+    // The mode this program will run under, recording or replaying data
+    //#[structopt(long, possible_values = &Mode::variants(), case_insensitive = true)]
+    #[structopt(subcommand)]
+    mode: Mode,
+
+    // The file to either read from, or write to
+    #[structopt(short, long, parse(from_os_str))]
+    filename: PathBuf,
 }
+
+#[derive(Debug, StructOpt)]
+pub enum Mode {
+    #[structopt(name = "record")]
+    // Records values from an MQTT Stream
+    Record(RecordOptions),
+
+    #[structopt(name = "replay")]
+    // Replay values from an input file
+    Replay(ReplayOtions),
+}
+
+#[derive(Debug, StructOpt)]
+pub struct RecordOptions {
+    #[structopt(short, long, default_value = "#")]
+    // Topic to record, can be used multiple times for a set of topics
+    topic: Vec<String>,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct ReplayOtions {
+    #[structopt(short, long, default_value = "1.0")]
+    // Topic to record
+    speed: f64,
+}
+
+//use structopt::clap::arg_enum;
+// arg_enum! {
+//     #[derive(Debug)]
+//     pub enum Mode {
+//         Record(RecordOptions),
+//         Replay(ReplayOtions),
+//     }
+// }
 
 #[derive(Serialize, Deserialize)]
 struct MqttMessage {
@@ -45,12 +91,7 @@ async fn main() {
         .as_millis();
 
     let servername = format!("{}-{}", "mqtt-recorder-rs", now);
-
-    let outputfile = if let Some(outputfile) = opt.outputfile {
-        outputfile
-    } else {
-        format!("mqttlog-{}", now).into()
-    };
+    let filename = opt.filename;
 
     match opt.verbose {
         1 => {
@@ -65,52 +106,96 @@ async fn main() {
         0 | _ => {}
     }
 
-    let mut log_file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&outputfile)
-        .unwrap();
-
     let mut mqttoptions = MqttOptions::new(servername, &opt.address, opt.port);
 
     mqttoptions.set_keep_alive(5);
     let mut eventloop = EventLoop::new(mqttoptions, 20 as usize);
     let requests_tx = eventloop.requests_tx.clone();
 
-    loop {
-        let res = eventloop.poll().await;
-        if let Ok((Some(Incoming::ConnAck(_)), _)) = res {
-            info!("Connected to: {}:{}", opt.address, opt.port);
+    debug!("{:?}", filename);
+    match opt.mode {
+        Mode::Replay(replay) => {
+            let mut file = fs::OpenOptions::new();
+            let file = file.read(true).create_new(false).open(filename).unwrap();
 
-            let subscription = Subscribe::new("#", QoS::AtLeastOnce);
-            let _ = requests_tx.send(Request::Subscribe(subscription)).await;
+            tokio::spawn(async move {
+                let mut previous = -1.0;
+                // text
+                for line in io::BufReader::new(file).lines() {
+                    if let Ok(line) = line {
+                        let msg = serde_json::from_str::<MqttMessage>(&line);
+                        if let Ok(msg) = msg {
+                            if previous < 0.0 {
+                                previous = msg.time;
+                            }
 
-            while let Ok((incoming, _outgoing)) = eventloop.poll().await {
-                if let Some(Incoming::Publish(publish)) = incoming {
-                    let qos = match publish.qos {
-                        QoS::AtMostOnce => 0,
-                        QoS::AtLeastOnce => 1,
-                        QoS::ExactlyOnce => 2,
-                    };
+                            tokio::time::sleep(std::time::Duration::from_millis(
+                                ((msg.time - previous) * 1000.0 / replay.speed) as u64,
+                            ))
+                            .await;
 
-                    let msg = MqttMessage {
-                        time: SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs_f64(),
-                        retain: publish.retain,
-                        topic: publish.topic.clone(),
-                        msg_b64: base64::encode(&*publish.payload),
-                        qos,
-                    };
+                            previous = msg.time;
 
-                    let serialized = serde_json::to_string(&msg).unwrap();
-                    writeln!(log_file, "{}", serialized).unwrap();
+                            let qos = match msg.qos {
+                                0 => QoS::AtMostOnce,
+                                1 => QoS::AtLeastOnce,
+                                2 => QoS::ExactlyOnce,
+                                _ => QoS::AtMostOnce,
+                            };
+                            let publish =
+                                Publish::new(msg.topic, qos, base64::decode(msg.msg_b64).unwrap());
+                            let _e = requests_tx.send(publish.into()).await;
+                        }
+                    }
+                }
+            });
 
-                    debug!("{:?}", publish);
+            loop {
+                let _res = eventloop.poll().await;
+            }
+        }
+        Mode::Record(record) => {
+            let mut file = fs::OpenOptions::new();
+            let mut file = file.write(true).create_new(true).open(filename).unwrap();
+
+            loop {
+                let res = eventloop.poll().await;
+
+                match res {
+                    Ok(Event::Incoming(Incoming::Publish(publish))) => {
+                        let qos = match publish.qos {
+                            QoS::AtMostOnce => 0,
+                            QoS::AtLeastOnce => 1,
+                            QoS::ExactlyOnce => 2,
+                        };
+
+                        let msg = MqttMessage {
+                            time: SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f64(),
+                            retain: publish.retain,
+                            topic: publish.topic.clone(),
+                            msg_b64: base64::encode(&*publish.payload),
+                            qos,
+                        };
+
+                        let serialized = serde_json::to_string(&msg).unwrap();
+                        writeln!(file, "{}", serialized).unwrap();
+
+                        debug!("{:?}", publish);
+                    }
+                    Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
+                        info!("Connected to: {}:{}", opt.address, opt.port);
+
+                        for topic in &record.topic {
+                            let subscription = Subscribe::new(topic, QoS::AtLeastOnce);
+                            let _ = requests_tx.send(Request::Subscribe(subscription)).await;
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
-        info!("Stream cancelled");
     }
 }
