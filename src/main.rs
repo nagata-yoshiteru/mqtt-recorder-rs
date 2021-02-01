@@ -114,6 +114,8 @@ async fn main() {
                 .open(&replay.filename)
                 .unwrap();
 
+            let (stop_tx, stop_rx) = std::sync::mpsc::channel();
+
             // Sends the recorded messages
             tokio::spawn(async move {
                 let mut previous = -1.0;
@@ -145,10 +147,11 @@ async fn main() {
                         }
                     }
                 }
+                let _e = stop_tx.send(());
             });
 
             // run the eventloop forever
-            loop {
+            while let Err(std::sync::mpsc::TryRecvError::Empty) = stop_rx.try_recv() {
                 let _res = eventloop.poll().await.unwrap();
             }
         }
