@@ -165,10 +165,10 @@ async fn main() {
                 .unwrap();
 
             loop {
-                let res = eventloop.poll().await.unwrap();
+                let res = eventloop.poll().await;
 
                 match res {
-                    Event::Incoming(Incoming::Publish(publish)) => {
+                    Ok(Event::Incoming(Incoming::Publish(publish))) => {
                         let qos = match publish.qos {
                             QoS::AtMostOnce => 0,
                             QoS::AtLeastOnce => 1,
@@ -191,13 +191,16 @@ async fn main() {
 
                         debug!("{:?}", publish);
                     }
-                    Event::Incoming(Incoming::ConnAck(_connect)) => {
+                    Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
                         info!("Connected to: {}:{}", opt.address, opt.port);
 
                         for topic in &record.topic {
                             let subscription = Subscribe::new(topic, QoS::AtLeastOnce);
                             let _ = requests_tx.send(Request::Subscribe(subscription)).await;
                         }
+                    }
+                    Err(e) => {
+                        error!("{:?}", e);
                     }
                     _ => {}
                 }
