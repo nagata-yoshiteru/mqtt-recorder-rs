@@ -57,11 +57,21 @@ pub struct RecordOptions {
 #[derive(Debug, StructOpt)]
 pub struct ReplayOtions {
     #[structopt(short, long, default_value = "1.0")]
-    // Topic to record
+    // Speed of the playback, 2.0 makes it twice as fast
     speed: f64,
+
     // The file to read replay values from
     #[structopt(short, long, parse(from_os_str))]
     filename: PathBuf,
+
+    #[structopt(
+        name = "loop",
+        short,
+        long,
+        parse(try_from_str),
+        default_value = "false"
+    )]
+    loop_replay: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,48 +116,56 @@ async fn main() {
     // Enter recording mode and open file readonly
     match opt.mode {
         Mode::Replay(replay) => {
-            let mut file = fs::OpenOptions::new();
-            debug!("{:?}", replay.filename);
-            let file = file
-                .read(true)
-                .create_new(false)
-                .open(&replay.filename)
-                .unwrap();
-
             let (stop_tx, stop_rx) = std::sync::mpsc::channel();
 
             // Sends the recorded messages
             tokio::spawn(async move {
                 let mut previous = -1.0;
                 // text
-                for line in io::BufReader::new(file).lines() {
-                    if let Ok(line) = line {
-                        let msg = serde_json::from_str::<MqttMessage>(&line);
-                        if let Ok(msg) = msg {
-                            if previous < 0.0 {
+                loop {
+                    let mut file = fs::OpenOptions::new();
+                    debug!("{:?}", replay.filename);
+                    let file = file
+                        .read(true)
+                        .create_new(false)
+                        .open(&replay.filename)
+                        .unwrap();
+                    for line in io::BufReader::new(&file).lines() {
+                        if let Ok(line) = line {
+                            let msg = serde_json::from_str::<MqttMessage>(&line);
+                            if let Ok(msg) = msg {
+                                if previous < 0.0 {
+                                    previous = msg.time;
+                                }
+
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    ((msg.time - previous) * 1000.0 / replay.speed) as u64,
+                                ))
+                                .await;
+
                                 previous = msg.time;
+
+                                let qos = match msg.qos {
+                                    0 => QoS::AtMostOnce,
+                                    1 => QoS::AtLeastOnce,
+                                    2 => QoS::ExactlyOnce,
+                                    _ => QoS::AtMostOnce,
+                                };
+                                let publish = Publish::new(
+                                    msg.topic,
+                                    qos,
+                                    base64::decode(msg.msg_b64).unwrap(),
+                                );
+                                let _e = requests_tx.send(publish.into()).await;
                             }
-
-                            tokio::time::sleep(std::time::Duration::from_millis(
-                                ((msg.time - previous) * 1000.0 / replay.speed) as u64,
-                            ))
-                            .await;
-
-                            previous = msg.time;
-
-                            let qos = match msg.qos {
-                                0 => QoS::AtMostOnce,
-                                1 => QoS::AtLeastOnce,
-                                2 => QoS::ExactlyOnce,
-                                _ => QoS::AtMostOnce,
-                            };
-                            let publish =
-                                Publish::new(msg.topic, qos, base64::decode(msg.msg_b64).unwrap());
-                            let _e = requests_tx.send(publish.into()).await;
                         }
                     }
+
+                    if !replay.loop_replay {
+                        let _e = stop_tx.send(());
+                        break;
+                    }
                 }
-                let _e = stop_tx.send(());
             });
 
             // run the eventloop forever
