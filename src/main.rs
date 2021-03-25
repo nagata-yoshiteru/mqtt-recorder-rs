@@ -1,13 +1,14 @@
 use log::*;
+use rumqttc::{ConnectionError, TlsConfiguration, Transport};
 use rumqttc::{Event, EventLoop, Incoming, MqttOptions, Publish, QoS, Request, Subscribe};
-
 use serde::{Deserialize, Serialize};
 use simple_logger::SimpleLogger;
-use std::fs;
-use std::io::Write;
-use std::io::{self, BufRead};
-use std::path::PathBuf;
-use std::time::SystemTime;
+use std::{
+    fs,
+    io::{self, BufRead, Read, Write},
+    path::PathBuf,
+    time::SystemTime,
+};
 use structopt::StructOpt;
 // use tokio::fs;
 // use tokio::io::AsyncBufReadExt;
@@ -16,19 +17,23 @@ use structopt::StructOpt;
 #[structopt(name = "mqtt-recorder", about = "mqtt recorder written in rust")]
 
 struct Opt {
-    // The verbosity of the program
+    //// The verbosity of the program
     #[structopt(short, long, default_value = "1")]
     verbose: u32,
 
-    // The address to connect to
+    /// The address to connect to
     #[structopt(short, long, default_value = "localhost")]
     address: String,
 
-    // The port to connect to
+    /// The port to connect to
     #[structopt(short, long, default_value = "1883")]
     port: u16,
 
-    // Mode to run software in
+    /// certificate of trusted CA
+    #[structopt(short, long)]
+    cafile: Option<PathBuf>,
+
+    /// Mode to run software in
     #[structopt(subcommand)]
     mode: Mode,
 }
@@ -109,6 +114,22 @@ async fn main() {
 
     let mut mqttoptions = MqttOptions::new(servername, &opt.address, opt.port);
 
+    if let Some(cafile) = opt.cafile {
+        let mut file = fs::OpenOptions::new();
+        let mut file = file.read(true).create_new(false).open(&cafile).unwrap();
+        let mut vec = Vec::new();
+        let _ = file.read_to_end(&mut vec).unwrap();
+
+        let tlsconfig = TlsConfiguration::Simple {
+            ca: vec,
+            alpn: None,
+            client_auth: None,
+        };
+
+        let transport = Transport::Tls(tlsconfig);
+        mqttoptions.set_transport(transport);
+    }
+
     mqttoptions.set_keep_alive(5);
     let mut eventloop = EventLoop::new(mqttoptions, 20 as usize);
     let requests_tx = eventloop.requests_tx.clone();
@@ -120,9 +141,9 @@ async fn main() {
 
             // Sends the recorded messages
             tokio::spawn(async move {
-                let mut previous = -1.0;
                 // text
                 loop {
+                    let mut previous = -1.0;
                     let mut file = fs::OpenOptions::new();
                     debug!("{:?}", replay.filename);
                     let file = file
@@ -171,6 +192,9 @@ async fn main() {
             // run the eventloop forever
             while let Err(std::sync::mpsc::TryRecvError::Empty) = stop_rx.try_recv() {
                 let _res = eventloop.poll().await.unwrap();
+                if let ConnectionError::Network(_e) = e {
+                    break;
+                }
             }
         }
         // Enter recording mode and open file writeable
@@ -219,6 +243,9 @@ async fn main() {
                     }
                     Err(e) => {
                         error!("{:?}", e);
+                        if let ConnectionError::Network(_e) = e {
+                            break;
+                        }
                     }
                     _ => {}
                 }
