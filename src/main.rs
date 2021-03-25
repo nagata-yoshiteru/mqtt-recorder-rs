@@ -192,9 +192,6 @@ async fn main() {
             // run the eventloop forever
             while let Err(std::sync::mpsc::TryRecvError::Empty) = stop_rx.try_recv() {
                 let _res = eventloop.poll().await.unwrap();
-                if let ConnectionError::Network(_e) = e {
-                    break;
-                }
             }
         }
         // Enter recording mode and open file writeable
