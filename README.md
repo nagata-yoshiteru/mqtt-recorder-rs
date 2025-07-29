@@ -48,6 +48,34 @@ Records MQTT messages to a directory with automatic time-based file splitting. F
         ├── mqtt-recorder-2025-07-26-0900.json
         └── mqtt-recorder-2025-07-26-0901.json
 
+## Intelligent Recording
+
+Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration.
+
+### Basic intelligent recording:
+    mqtt-recorder-rs -a localhost irecord -d ./data
+
+### Intelligent recording with custom timeout (60 seconds):
+    mqtt-recorder-rs -a localhost irecord -d ./data --sec 60
+
+### Recording specific topics with intelligent mode:
+    mqtt-recorder-rs -a localhost irecord -d ./data -t "sensor/+" --sec 30
+
+### Intelligent file structure created:
+    data/
+    ├── chincha/
+    │   └── shimo/
+    │       └── 2025-07-25/
+    │           ├── mqtt-recorder-chincha-shimo-20250725-100230.json
+    │           └── mqtt-recorder-chincha-shimo-20250725-103045.json
+    └── sensor/
+        ├── temperature/
+        │   └── 2025-07-25/
+        │       └── mqtt-recorder-sensor-temperature-20250725-100515.json
+        └── humidity/
+            └── 2025-07-25/
+                └── mqtt-recorder-sensor-humidity-20250725-100630.json
+
 ## Replaying
 
 Replays recorded MQTT messages from a directory. Supports time range filtering and playback speed control.
@@ -66,13 +94,26 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 
 ## Features
 
+### Standard Recording Mode (`record`)
 - **Automatic time-based file splitting**: Records are automatically split into separate files every minute
 - **Date-based directory organization**: Files are organized in `YYYY-MM-DD/` directories
+
+### Intelligent Recording Mode (`irecord`)
+- **Topic-based directory organization**: Each topic gets its own directory hierarchy
+- **Intelligent file splitting**: Files are split based on message intervals (configurable timeout)
+- **Per-topic timeout management**: Each topic manages its own file timeout independently
+- **Automatic cleanup**: Inactive files are automatically closed when timeout is reached
+
+### Replay Features
 - **Time range filtering**: Replay specific time ranges using `--start-time` and `--end-time` options
 - **Playback speed control**: Adjust replay speed with `--speed` parameter (e.g., 2.0 for 2x speed, 0.5 for half speed)
 - **Loop playback**: Continuously replay data with `--loop true`
 - **Recursive file discovery**: Automatically finds and processes all JSON files in the specified directory
+
+### General Features
 - **TLS/SSL support**: Connect to secure MQTT brokers using certificate files
+- **Multiple topic subscription**: Subscribe to multiple topic patterns simultaneously
+- **Flexible topic patterns**: Support for MQTT wildcards (`+` and `#`)
 
 ## Time Format
 

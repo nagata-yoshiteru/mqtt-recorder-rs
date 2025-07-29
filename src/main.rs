@@ -7,7 +7,8 @@ use std::{
     fs,
     io::{self, BufRead, Read, Write},
     path::PathBuf,
-    time::SystemTime,
+    time::{SystemTime, Instant},
+    collections::HashMap,
 };
 use structopt::StructOpt;
 use chrono::{NaiveDateTime, Local, Timelike};
@@ -45,6 +46,10 @@ pub enum Mode {
     #[structopt(name = "record")]
     Record(RecordOptions),
 
+    // Records values with intelligent topic-based directory organization
+    #[structopt(name = "irecord")]
+    IntelligentRecord(IntelligentRecordOptions),
+
     // Replay values from an input file
     #[structopt(name = "replay")]
     Replay(ReplayOtions),
@@ -58,6 +63,19 @@ pub struct RecordOptions {
     // The directory to write mqtt message files to
     #[structopt(short, long, parse(from_os_str))]
     directory: PathBuf,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct IntelligentRecordOptions {
+    #[structopt(short, long, default_value = "#")]
+    // Topic to record, can be used multiple times for a set of topics
+    topic: Vec<String>,
+    // The directory to write mqtt message files to
+    #[structopt(short, long, parse(from_os_str))]
+    directory: PathBuf,
+    // Seconds to wait for messages before closing file (default: 30 seconds)
+    #[structopt(long, default_value = "30")]
+    sec: u64,
 }
 
 #[derive(Debug, StructOpt)]
@@ -105,6 +123,93 @@ fn get_current_file_path(base_dir: &PathBuf) -> PathBuf {
     
     let dir = base_dir.join(&date_str);
     dir.join(format!("mqtt-recorder-{}.json", time_str))
+}
+
+// ヘルパー関数：トピック名をファイルシステム用のパスに変換
+fn topic_to_path(topic: &str) -> String {
+    topic.replace('/', "-").replace('+', "plus").replace('#', "hash")
+}
+
+// ヘルパー関数：インテリジェント記録用のファイルパスを生成
+fn get_intelligent_file_path(base_dir: &PathBuf, topic: &str) -> PathBuf {
+    let now = Local::now();
+    let date_str = now.format("%Y-%m-%d").to_string();
+    let timestamp = now.format("%Y%m%d-%H%M%S").to_string();
+    
+    // トピック名でディレクトリを作成
+    let topic_dir = base_dir.join(topic).join(&date_str);
+    
+    // ファイル名を生成（トピック名も含める）
+    let topic_filename = topic_to_path(topic);
+    topic_dir.join(format!("mqtt-recorder-{}-{}.json", topic_filename, timestamp))
+}
+
+// インテリジェント記録用のファイル管理構造体
+struct TopicFileManager {
+    files: HashMap<String, (fs::File, PathBuf, Instant)>,
+    base_dir: PathBuf,
+    timeout_secs: u64,
+}
+
+impl TopicFileManager {
+    fn new(base_dir: PathBuf, timeout_secs: u64) -> Self {
+        Self {
+            files: HashMap::new(),
+            base_dir,
+            timeout_secs,
+        }
+    }
+    
+    fn get_or_create_file(&mut self, topic: &str) -> Result<&mut fs::File, std::io::Error> {
+        let now = Instant::now();
+        
+        // 既存のファイルをチェック（タイムアウトしていないか）
+        if let Some((_, _, last_access)) = self.files.get(topic) {
+            if now.duration_since(*last_access).as_secs() > self.timeout_secs {
+                // タイムアウトしたファイルを削除
+                self.files.remove(topic);
+                info!("File for topic '{}' timed out, creating new file", topic);
+            }
+        }
+        
+        // ファイルが存在しない場合は新規作成
+        if !self.files.contains_key(topic) {
+            let file_path = get_intelligent_file_path(&self.base_dir, topic);
+            
+            // ディレクトリを作成
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            
+            let file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&file_path)?;
+                
+            info!("Created new file for topic '{}': {:?}", topic, file_path);
+            self.files.insert(topic.to_string(), (file, file_path, now));
+        } else {
+            // アクセス時刻を更新
+            if let Some((_, _, last_access)) = self.files.get_mut(topic) {
+                *last_access = now;
+            }
+        }
+        
+        Ok(&mut self.files.get_mut(topic).unwrap().0)
+    }
+    
+    fn cleanup_timeout_files(&mut self) {
+        let now = Instant::now();
+        let timeout_secs = self.timeout_secs;
+        
+        self.files.retain(|topic, (_, _, last_access)| {
+            let should_keep = now.duration_since(*last_access).as_secs() <= timeout_secs;
+            if !should_keep {
+                info!("Closing file for topic '{}' due to timeout", topic);
+            }
+            should_keep
+        });
+    }
 }
 
 // ヘルパー関数：ディレクトリ内の指定された時間範囲のファイルを取得
@@ -379,6 +484,76 @@ async fn main() {
                         }
                     }
                     _ => {}
+                }
+            }
+        }
+        // Enter intelligent recording mode
+        Mode::IntelligentRecord(irecord) => {
+            let mut file_manager = TopicFileManager::new(irecord.directory.clone(), irecord.sec);
+            let cleanup_interval = tokio::time::Duration::from_secs(irecord.sec / 2); // クリーンアップは半分の間隔で実行
+            let mut cleanup_timer = tokio::time::interval(cleanup_interval);
+            
+            loop {
+                tokio::select! {
+                    // メッセージ処理
+                    res = eventloop.poll() => {
+                        match res {
+                            Ok(Event::Incoming(Incoming::Publish(publish))) => {
+                                let topic = &publish.topic;
+                                
+                                // ファイルを取得または作成
+                                match file_manager.get_or_create_file(topic) {
+                                    Ok(file) => {
+                                        let qos = match publish.qos {
+                                            QoS::AtMostOnce => 0,
+                                            QoS::AtLeastOnce => 1,
+                                            QoS::ExactlyOnce => 2,
+                                        };
+
+                                        let msg = MqttMessage {
+                                            time: SystemTime::now()
+                                                .duration_since(SystemTime::UNIX_EPOCH)
+                                                .unwrap()
+                                                .as_secs_f64(),
+                                            retain: publish.retain,
+                                            topic: publish.topic.clone(),
+                                            msg_b64: base64::encode(&*publish.payload),
+                                            qos,
+                                        };
+
+                                        let serialized = serde_json::to_string(&msg).unwrap();
+                                        if let Err(e) = writeln!(file, "{}", serialized) {
+                                            error!("Failed to write to file for topic '{}': {:?}", topic, e);
+                                        }
+
+                                        debug!("{:?}", publish);
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to get file for topic '{}': {:?}", topic, e);
+                                    }
+                                }
+                            }
+                            Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
+                                info!("Connected to: {}:{}", opt.address, opt.port);
+
+                                for topic in &irecord.topic {
+                                    let subscription = Subscribe::new(topic, QoS::AtLeastOnce);
+                                    let _ = requests_tx.send(Request::Subscribe(subscription)).await;
+                                }
+                            }
+                            Err(e) => {
+                                error!("{:?}", e);
+                                if let ConnectionError::Network(_e) = e {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    // 定期的なファイルクリーンアップ
+                    _ = cleanup_timer.tick() => {
+                        file_manager.cleanup_timeout_files();
+                    }
                 }
             }
         }
