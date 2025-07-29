@@ -1,0 +1,156 @@
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    time::Instant,
+};
+use chrono::Local;
+use log::*;
+
+/// ヘルパー関数：現在時刻に基づいてファイルパスを生成
+pub fn get_current_file_path(base_dir: &PathBuf) -> PathBuf {
+    let now = Local::now();
+    let date_str = now.format("%Y-%m-%d").to_string();
+    let time_str = now.format("%Y-%m-%d-%H%M").to_string();
+    
+    let dir = base_dir.join(&date_str);
+    dir.join(format!("mqtt-recorder-{}.json", time_str))
+}
+
+/// ヘルパー関数：トピック名をファイルシステム用のパスに変換
+pub fn topic_to_path(topic: &str) -> String {
+    topic.replace('/', "-").replace('+', "plus").replace('#', "hash")
+}
+
+/// ヘルパー関数：ベースタイムスタンプを使用してファイルパスを生成（ファイル番号付き）
+pub fn get_intelligent_file_path(base_dir: &PathBuf, topic: &str, base_timestamp: &str, file_number: u32) -> PathBuf {
+    let now = Local::now();
+    let date_str = now.format("%Y-%m-%d").to_string();
+    
+    // トピック名でディレクトリを作成
+    let topic_dir = base_dir.join(topic).join(&date_str);
+    
+    // ファイル名を生成（トピック名も含める）
+    let topic_filename = topic_to_path(topic);
+    
+    if file_number == 0 {
+        topic_dir.join(format!("mqtt-recorder-{}-{}.json", topic_filename, base_timestamp))
+    } else {
+        topic_dir.join(format!("mqtt-recorder-{}-{}-{}.json", topic_filename, base_timestamp, file_number))
+    }
+}
+
+/// インテリジェント記録用のファイル管理構造体
+pub struct TopicFileManager {
+    files: HashMap<String, (fs::File, PathBuf, Instant, u32, u32)>, // (ファイル, パス, 最終アクセス, メッセージ数, ファイル番号)
+    base_timestamps: HashMap<String, String>, // トピックごとのベースタイムスタンプ
+    base_dir: PathBuf,
+    timeout_secs: u64,
+    max_messages_per_file: u32,
+}
+
+impl TopicFileManager {
+    pub fn new(base_dir: PathBuf, timeout_secs: u64) -> Self {
+        Self {
+            files: HashMap::new(),
+            base_timestamps: HashMap::new(),
+            base_dir,
+            timeout_secs,
+            max_messages_per_file: 100_000, // 10万メッセージまで
+        }
+    }
+    
+    pub fn get_or_create_file(&mut self, topic: &str) -> Result<&mut fs::File, std::io::Error> {
+        let now = Instant::now();
+        let mut create_new_file = false;
+        let mut file_number = 0;
+        let mut use_existing_timestamp = false;
+        
+        // 既存のファイルをチェック（タイムアウトまたはメッセージ数制限）
+        let should_remove = if let Some((_, _, last_access, message_count, current_file_number)) = self.files.get(topic) {
+            let timed_out = now.duration_since(*last_access).as_secs() > self.timeout_secs;
+            let message_limit_reached = *message_count >= self.max_messages_per_file;
+            
+            if timed_out {
+                info!("File for topic '{}' timed out, creating new file", topic);
+                // タイムアウトの場合はベースタイムスタンプもクリア
+                self.base_timestamps.remove(topic);
+                create_new_file = true;
+                true
+            } else if message_limit_reached {
+                file_number = current_file_number + 1;
+                use_existing_timestamp = true; // 既存のタイムスタンプを使用
+                info!("File for topic '{}' reached message limit ({}), creating new file with number {}", 
+                      topic, self.max_messages_per_file, file_number);
+                create_new_file = true;
+                true
+            } else {
+                false
+            }
+        } else {
+            create_new_file = true;
+            false
+        };
+        
+        if should_remove {
+            self.files.remove(topic);
+        }
+        
+        // ファイルが存在しない場合は新規作成
+        if create_new_file || !self.files.contains_key(topic) {
+            let file_path = if use_existing_timestamp {
+                // 既存のベースタイムスタンプを使用
+                let base_timestamp = self.base_timestamps.get(topic).unwrap();
+                get_intelligent_file_path(&self.base_dir, topic, base_timestamp, file_number)
+            } else {
+                // 新しいタイムスタンプを生成してベースタイムスタンプとして保存
+                let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+                self.base_timestamps.insert(topic.to_string(), timestamp.clone());
+                get_intelligent_file_path(&self.base_dir, topic, &timestamp, file_number)
+            };
+            
+            // ディレクトリを作成
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            
+            let file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&file_path)?;
+                
+            info!("Created new file for topic '{}': {:?}", topic, file_path);
+            self.files.insert(topic.to_string(), (file, file_path, now, 0, file_number));
+        } else {
+            // アクセス時刻を更新し、メッセージ数をインクリメント
+            if let Some((_, _, last_access, message_count, _)) = self.files.get_mut(topic) {
+                *last_access = now;
+                *message_count += 1;
+            }
+        }
+        
+        Ok(&mut self.files.get_mut(topic).unwrap().0)
+    }
+    
+    pub fn cleanup_timeout_files(&mut self) {
+        let now = Instant::now();
+        let timeout_secs = self.timeout_secs;
+        
+        // タイムアウトしたトピックを収集
+        let mut topics_to_remove = Vec::new();
+        
+        self.files.retain(|topic, (_, _, last_access, _, _)| {
+            let should_keep = now.duration_since(*last_access).as_secs() <= timeout_secs;
+            if !should_keep {
+                info!("Closing file for topic '{}' due to timeout", topic);
+                topics_to_remove.push(topic.clone());
+            }
+            should_keep
+        });
+        
+        // タイムアウトしたトピックのベースタイムスタンプもクリア
+        for topic in topics_to_remove {
+            self.base_timestamps.remove(&topic);
+        }
+    }
+}

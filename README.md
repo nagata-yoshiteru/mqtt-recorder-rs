@@ -50,7 +50,7 @@ Records MQTT messages to a directory with automatic time-based file splitting. F
 
 ## Intelligent Recording
 
-Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration.
+Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration or when reaching the maximum message count per file (100,000 messages).
 
 ### Basic intelligent recording:
     mqtt-recorder-rs -a localhost irecord -d ./data
@@ -66,15 +66,17 @@ Records MQTT messages with topic-based directory organization and intelligent fi
     ├── chincha/
     │   └── shimo/
     │       └── 2025-07-25/
-    │           ├── mqtt-recorder-chincha-shimo-20250725-100230.json
-    │           └── mqtt-recorder-chincha-shimo-20250725-103045.json
+    │           ├── mqtt-recorder-chincha-shimo-20250725-100230.json      # Base file
+    │           ├── mqtt-recorder-chincha-shimo-20250725-100230-1.json    # After 100k messages
+    │           └── mqtt-recorder-chincha-shimo-20250725-103045.json      # After timeout
     └── sensor/
         ├── temperature/
         │   └── 2025-07-25/
         │       └── mqtt-recorder-sensor-temperature-20250725-100515.json
         └── humidity/
             └── 2025-07-25/
-                └── mqtt-recorder-sensor-humidity-20250725-100630.json
+                ├── mqtt-recorder-sensor-humidity-20250725-100630.json
+                └── mqtt-recorder-sensor-humidity-20250725-100630-1.json
 
 ## Replaying
 
@@ -100,7 +102,8 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 
 ### Intelligent Recording Mode (`irecord`)
 - **Topic-based directory organization**: Each topic gets its own directory hierarchy
-- **Intelligent file splitting**: Files are split based on message intervals (configurable timeout)
+- **Dual file splitting criteria**: Files are split based on message intervals (configurable timeout) OR message count (100,000 messages per file)
+- **Automatic file numbering**: When message limit is reached, files are numbered sequentially (-1, -2, -3, etc.)
 - **Per-topic timeout management**: Each topic manages its own file timeout independently
 - **Automatic cleanup**: Inactive files are automatically closed when timeout is reached
 
