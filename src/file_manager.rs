@@ -6,6 +6,7 @@ use std::{
 };
 use chrono::Local;
 use log::*;
+use crate::stats::StatsManager;
 
 /// ヘルパー関数：現在時刻に基づいてファイルパスを生成
 pub fn get_current_file_path(base_dir: &PathBuf) -> PathBuf {
@@ -47,16 +48,19 @@ pub struct TopicFileManager {
     base_dir: PathBuf,
     timeout_secs: u64,
     max_messages_per_file: u32,
+    stats_manager: StatsManager,
 }
 
 impl TopicFileManager {
-    pub fn new(base_dir: PathBuf, timeout_secs: u64) -> Self {
+    pub fn new(base_dir: PathBuf, timeout_secs: u64, stats_enabled: bool, stats_interval_secs: u64) -> Self {
+        let stats_manager = StatsManager::new(base_dir.clone(), stats_enabled, stats_interval_secs);
         Self {
             files: HashMap::new(),
             base_timestamps: HashMap::new(),
             base_dir,
             timeout_secs,
             max_messages_per_file: 100_000, // 10万メッセージまで
+            stats_manager,
         }
     }
     
@@ -73,7 +77,8 @@ impl TopicFileManager {
             
             if timed_out {
                 info!("File for topic '{}' timed out, creating new file", topic);
-                // タイムアウトの場合はベースタイムスタンプもクリア
+                // タイムアウトの場合は統計を強制計算してからベースタイムスタンプもクリア
+                self.stats_manager.force_calculate_stats_for_topic(topic);
                 self.base_timestamps.remove(topic);
                 create_new_file = true;
                 true
@@ -82,6 +87,8 @@ impl TopicFileManager {
                 use_existing_timestamp = true; // 既存のタイムスタンプを使用
                 info!("File for topic '{}' reached message limit ({}), creating new file with number {}", 
                       topic, self.max_messages_per_file, file_number);
+                // メッセージ数制限に達した場合も統計を強制計算
+                self.stats_manager.force_calculate_stats_for_topic(topic);
                 create_new_file = true;
                 true
             } else {
@@ -148,9 +155,41 @@ impl TopicFileManager {
             should_keep
         });
         
-        // タイムアウトしたトピックのベースタイムスタンプもクリア
-        for topic in topics_to_remove {
-            self.base_timestamps.remove(&topic);
+        // タイムアウトしたトピックの統計を強制計算してからベースタイムスタンプもクリア
+        for topic in &topics_to_remove {
+            self.stats_manager.force_calculate_stats_for_topic(topic);
+            self.base_timestamps.remove(topic);
         }
+    }
+
+    /// メッセージを書き込み、統計分析も実行
+    pub fn write_message(&mut self, topic: &str, json_message: &str) -> Result<(), std::io::Error> {
+        use std::io::Write;
+        
+        // ファイルに書き込み
+        {
+            let file = self.get_or_create_file(topic)?;
+            writeln!(file, "{}", json_message)?;
+            file.flush()?;
+        }
+        
+        // メッセージ数をインクリメント
+        if let Some((_, _, ref mut last_access, ref mut message_count, _)) = self.files.get_mut(topic) {
+            *last_access = std::time::Instant::now();
+            *message_count += 1;
+        }
+        
+        // 統計分析にメッセージを追加
+        self.stats_manager.add_message(topic, json_message);
+        
+        // 定期的な統計計算をチェック
+        self.stats_manager.check_and_calculate_stats();
+        
+        Ok(())
+    }
+
+    /// ファイル分割時に統計を強制計算
+    pub fn force_stats_calculation(&mut self, topic: &str) {
+        self.stats_manager.force_calculate_stats_for_topic(topic);
     }
 }

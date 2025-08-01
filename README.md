@@ -50,7 +50,7 @@ Records MQTT messages to a directory with automatic time-based file splitting. F
 
 ## Intelligent Recording
 
-Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration or when reaching the maximum message count per file (100,000 messages).
+Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration or when reaching the maximum message count per file (100,000 messages). Additionally, statistical analysis is performed on JSON payloads in real-time.
 
 ### Basic intelligent recording:
     mqtt-recorder-rs -a localhost irecord -d ./data
@@ -61,6 +61,12 @@ Records MQTT messages with topic-based directory organization and intelligent fi
 ### Recording specific topics with intelligent mode:
     mqtt-recorder-rs -a localhost irecord -d ./data -t "sensor/+" --sec 30
 
+### Intelligent recording with statistical analysis enabled:
+    mqtt-recorder-rs -a localhost irecord -d ./data --enable-stats
+
+### Intelligent recording with custom statistics interval (120 seconds):
+    mqtt-recorder-rs -a localhost irecord -d ./data --enable-stats --stats-interval 120
+
 ### Intelligent file structure created:
     data/
     ├── chincha/
@@ -68,15 +74,40 @@ Records MQTT messages with topic-based directory organization and intelligent fi
     │       └── 2025-07-25/
     │           ├── mqtt-recorder-chincha-shimo-20250725-100230.json      # Base file
     │           ├── mqtt-recorder-chincha-shimo-20250725-100230-1.json    # After 100k messages
-    │           └── mqtt-recorder-chincha-shimo-20250725-103045.json      # After timeout
+    │           ├── mqtt-recorder-chincha-shimo-20250725-103045.json      # After timeout
+    │           └── mqtt-recorder-chincha-shimo-stats.txt                 # Statistical analysis
     └── sensor/
         ├── temperature/
         │   └── 2025-07-25/
-        │       └── mqtt-recorder-sensor-temperature-20250725-100515.json
+        │       ├── mqtt-recorder-sensor-temperature-20250725-100515.json
+        │       └── mqtt-recorder-sensor-temperature-stats.txt
         └── humidity/
             └── 2025-07-25/
                 ├── mqtt-recorder-sensor-humidity-20250725-100630.json
-                └── mqtt-recorder-sensor-humidity-20250725-100630-1.json
+                ├── mqtt-recorder-sensor-humidity-20250725-100630-1.json
+                └── mqtt-recorder-sensor-humidity-stats.txt
+
+### Statistical Analysis
+
+The intelligent recording mode automatically performs statistical analysis on JSON payloads:
+
+- **Real-time JSON analysis**: Each incoming JSON message is parsed and analyzed
+- **Key-path tracking**: JSON hierarchies and array indices are tracked separately (e.g., `sensor.temperature`, `readings[0]`, `readings[1]`)
+- **Type-aware statistics**: 
+  - Numerical values: variance calculation
+  - String/Boolean values: unique count calculation
+- **Time-based reporting**: Statistics are calculated and written every minute or when files are split
+- **Per-topic statistics**: Each topic maintains separate statistical data
+
+#### Example statistics output:
+```
+2025-07-31 15:29:00 - 2025-07-31 15:30:00, temperature:0.125, humidity:0.089, readings[0]:0.234, readings[1]:0.156, status:2
+```
+
+Where:
+- `2025-07-31 15:29:00 - 2025-07-31 15:30:00` - time range of analyzed data
+- `temperature:0.125` - variance of temperature values
+- `status:2` - unique count of status values (e.g., "ok", "error")
 
 ## Replaying
 
@@ -106,6 +137,9 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 - **Automatic file numbering**: When message limit is reached, files are numbered sequentially (-1, -2, -3, etc.)
 - **Per-topic timeout management**: Each topic manages its own file timeout independently
 - **Automatic cleanup**: Inactive files are automatically closed when timeout is reached
+- **Optional statistical analysis**: Enable with `--enable-stats` flag for automatic JSON payload analysis
+- **Configurable statistics interval**: Use `--stats-interval` to set analysis period (default: 60 seconds)
+- **Time-range reporting**: Statistics show analysis time range (start - end) instead of just end time
 
 ### Replay Features
 - **Time range filtering**: Replay specific time ranges using `--start-time` and `--end-time` options

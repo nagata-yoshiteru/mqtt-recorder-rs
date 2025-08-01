@@ -61,6 +61,12 @@ pub struct IntelligentRecordOptions {
     /// Seconds to wait for messages before closing file (default: 30 seconds)
     #[structopt(long, default_value = "30")]
     pub sec: u64,
+    /// Enable statistical analysis of JSON payloads
+    #[structopt(long)]
+    pub enable_stats: bool,
+    /// Interval in seconds for statistical analysis (default: 60 seconds)
+    #[structopt(long, default_value = "60")]
+    pub stats_interval: u64,
 }
 
 #[derive(Debug, StructOpt)]

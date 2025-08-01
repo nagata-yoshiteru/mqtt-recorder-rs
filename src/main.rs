@@ -230,7 +230,12 @@ async fn main() {
         }
         // Enter intelligent recording mode
         Mode::IntelligentRecord(irecord) => {
-            let mut file_manager = TopicFileManager::new(irecord.directory.clone(), irecord.sec);
+            let mut file_manager = TopicFileManager::new(
+                irecord.directory.clone(), 
+                irecord.sec, 
+                irecord.enable_stats, 
+                irecord.stats_interval
+            );
             let cleanup_interval = tokio::time::Duration::from_secs(irecord.sec / 2); // クリーンアップは半分の間隔で実行
             let mut cleanup_timer = tokio::time::interval(cleanup_interval);
             
@@ -242,37 +247,31 @@ async fn main() {
                             Ok(Event::Incoming(Incoming::Publish(publish))) => {
                                 let topic = &publish.topic;
                                 
-                                // ファイルを取得または作成
-                                match file_manager.get_or_create_file(topic) {
-                                    Ok(file) => {
-                                        let qos = match publish.qos {
-                                            QoS::AtMostOnce => 0,
-                                            QoS::AtLeastOnce => 1,
-                                            QoS::ExactlyOnce => 2,
-                                        };
+                                let qos = match publish.qos {
+                                    QoS::AtMostOnce => 0,
+                                    QoS::AtLeastOnce => 1,
+                                    QoS::ExactlyOnce => 2,
+                                };
 
-                                        let msg = MqttMessage {
-                                            time: SystemTime::now()
-                                                .duration_since(SystemTime::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_secs_f64(),
-                                            retain: publish.retain,
-                                            topic: publish.topic.clone(),
-                                            msg_b64: base64::encode(&*publish.payload),
-                                            qos,
-                                        };
+                                let msg = MqttMessage {
+                                    time: SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs_f64(),
+                                    retain: publish.retain,
+                                    topic: publish.topic.clone(),
+                                    msg_b64: base64::encode(&*publish.payload),
+                                    qos,
+                                };
 
-                                        let serialized = serde_json::to_string(&msg).unwrap();
-                                        if let Err(e) = writeln!(file, "{}", serialized) {
-                                            error!("Failed to write to file for topic '{}': {:?}", topic, e);
-                                        }
-
-                                        debug!("{:?}", publish);
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to get file for topic '{}': {:?}", topic, e);
-                                    }
+                                let serialized = serde_json::to_string(&msg).unwrap();
+                                
+                                // 新しい write_message メソッドを使用（統計分析も含む）
+                                if let Err(e) = file_manager.write_message(topic, &serialized) {
+                                    error!("Failed to write message for topic '{}': {:?}", topic, e);
                                 }
+
+                                debug!("{:?}", publish);
                             }
                             Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
                                 info!("Connected to: {}:{}", opt.address, opt.port);
