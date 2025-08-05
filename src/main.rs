@@ -229,7 +229,8 @@ async fn main() {
                 irecord.directory.clone(), 
                 irecord.sec, 
                 irecord.enable_stats, 
-                irecord.stats_interval
+                irecord.stats_interval,
+                !irecord.disable_all_topic_record // 全トピック記録の有効/無効を設定
             );
             let cleanup_interval = tokio::time::Duration::from_secs(irecord.sec / 2); // クリーンアップは半分の間隔で実行
             let mut cleanup_timer = tokio::time::interval(cleanup_interval);

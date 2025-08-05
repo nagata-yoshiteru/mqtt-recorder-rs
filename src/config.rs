@@ -67,6 +67,9 @@ pub struct IntelligentRecordOptions {
     /// Interval in seconds for statistical analysis (default: 60 seconds)
     #[structopt(long, default_value = "60")]
     pub stats_interval: u64,
+    /// Disable recording all topics together in a single file
+    #[structopt(long)]
+    pub disable_all_topic_record: bool,
 }
 
 #[derive(Debug, StructOpt)]

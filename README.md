@@ -52,6 +52,8 @@ Records MQTT messages to a directory with automatic time-based file splitting. F
 
 Records MQTT messages with topic-based directory organization and intelligent file splitting based on message intervals. Files are split when no messages are received for a specified duration or when reaching the maximum message count per file (100,000 messages). Additionally, statistical analysis is performed on JSON payloads in real-time.
 
+**New Feature**: By default, intelligent recording mode now records all topics together in a single file (in addition to individual topic files). This provides a unified view of all MQTT traffic. You can disable this behavior using the `--disable-all-topic-record` flag.
+
 ### Basic intelligent recording:
     mqtt-recorder-rs -a localhost irecord -d ./data
 
@@ -61,6 +63,9 @@ Records MQTT messages with topic-based directory organization and intelligent fi
 ### Recording specific topics with intelligent mode:
     mqtt-recorder-rs -a localhost irecord -d ./data -t "sensor/+" --sec 30
 
+### Disable all-topics recording (only individual topic files):
+    mqtt-recorder-rs -a localhost irecord -d ./data --disable-all-topic-record
+
 ### Intelligent recording with statistical analysis enabled:
     mqtt-recorder-rs -a localhost irecord -d ./data --enable-stats
 
@@ -69,6 +74,11 @@ Records MQTT messages with topic-based directory organization and intelligent fi
 
 ### Intelligent file structure created:
     data/
+    ├── all-topics/                                                      # New: Combined recording
+    │   └── 2025-07-25/
+    │       ├── mqtt-recorder-all-topics-20250725-100230.json          # All topics combined
+    │       ├── mqtt-recorder-all-topics-20250725-100230-1.json        # After 100k messages
+    │       └── mqtt-recorder-all-topics-20250725-103045.json          # After timeout
     ├── chincha/
     │   └── shimo/
     │       └── 2025-07-25/
@@ -133,6 +143,7 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 
 ### Intelligent Recording Mode (`irecord`)
 - **Topic-based directory organization**: Each topic gets its own directory hierarchy
+- **Unified all-topics recording**: By default, all topics are also recorded together in a single file for unified analysis
 - **Dual file splitting criteria**: Files are split based on message intervals (configurable timeout) OR message count (100,000 messages per file)
 - **Automatic file numbering**: When message limit is reached, files are numbered sequentially (-1, -2, -3, etc.)
 - **Per-topic timeout management**: Each topic manages its own file timeout independently
@@ -140,6 +151,7 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 - **Optional statistical analysis**: Enable with `--enable-stats` flag for automatic JSON payload analysis
 - **Configurable statistics interval**: Use `--stats-interval` to set analysis period (default: 60 seconds)
 - **Time-range reporting**: Statistics show analysis time range (start - end) instead of just end time
+- **Flexible all-topics recording**: Use `--disable-all-topic-record` to disable unified recording if needed
 
 ### Replay Features
 - **Time range filtering**: Replay specific time ranges using `--start-time` and `--end-time` options
