@@ -1,5 +1,5 @@
 /target
 Cargo.lock
 mqttlog-*
-mqtt-recorder-*-*-*-*.json
+mqtt-recorder-*-*-*.json
 mqtt-recorder-*-stats.txt
