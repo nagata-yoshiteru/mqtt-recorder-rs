@@ -225,6 +225,7 @@ fn main() {
         }
         // Enter intelligent recording mode
         Mode::IntelligentRecord(irecord) => {
+            info!("Starting IntelligentRecord with directory: {:?}", irecord.directory);
             let mut file_manager = TopicFileManager::new(
                 irecord.directory.clone(), 
                 irecord.sec, 
