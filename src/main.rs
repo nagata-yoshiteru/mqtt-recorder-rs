@@ -1,11 +1,11 @@
 use log::*;
-use rumqttc::{ConnectionError, TlsConfiguration, Transport};
-use rumqttc::{Event, EventLoop, Incoming, MqttOptions, Publish, QoS, Request, Subscribe};
+use rumqttc::{TlsConfiguration, Transport, Client};
+use rumqttc::{Event, Incoming, MqttOptions, QoS};
 use simple_logger::SimpleLogger;
 use std::{
     fs,
     io::{self, BufRead, Read, Write},
-    time::SystemTime,
+    time::{SystemTime, Duration},
 };
 use structopt::StructOpt;
 use chrono::{Local, Timelike};
@@ -55,9 +55,8 @@ async fn main() {
         mqttoptions.set_transport(transport);
     }
 
-    mqttoptions.set_keep_alive(5);
-    let mut eventloop = EventLoop::new(mqttoptions, 20 as usize);
-    let requests_tx = eventloop.requests_tx.clone();
+    mqttoptions.set_keep_alive(Duration::from_secs(5));
+    let (client, mut eventloop) = Client::new(mqttoptions, 20);
 
     match opt.mode {
         Mode::Replay(replay) => {
@@ -118,12 +117,8 @@ async fn main() {
                                         2 => QoS::ExactlyOnce,
                                         _ => QoS::AtMostOnce,
                                     };
-                                    let publish = Publish::new(
-                                        msg.topic,
-                                        qos,
-                                        base64::decode(msg.msg_b64).unwrap(),
-                                    );
-                                    let _e = requests_tx.send(publish.into()).await;
+                                    let payload = base64::decode(msg.msg_b64).unwrap();
+                                    let _e = client.publish(msg.topic, qos, msg.retain, payload);
                                 }
                             }
                         }
@@ -138,7 +133,10 @@ async fn main() {
 
             // run the eventloop forever
             while let Err(std::sync::mpsc::TryRecvError::Empty) = stop_rx.try_recv() {
-                let _res = eventloop.poll().await.unwrap();
+                match eventloop.recv() {
+                    Ok(Ok(_)) => {},
+                    _ => break,
+                }
             }
         }
         // Enter recording mode and open file writeable
@@ -161,10 +159,10 @@ async fn main() {
             info!("Recording to: {:?}", current_file_path);
 
             loop {
-                let res = eventloop.poll().await;
+                let res = eventloop.recv();
 
                 match res {
-                    Ok(Event::Incoming(Incoming::Publish(publish))) => {
+                    Ok(Ok(Event::Incoming(Incoming::Publish(publish)))) => {
                         // 分が変わったかチェック（ファイル分割のため）
                         let now = Local::now();
                         if now.minute() != current_minute {
@@ -210,19 +208,16 @@ async fn main() {
 
                         debug!("{:?}", publish);
                     }
-                    Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
+                    Ok(Ok(Event::Incoming(Incoming::ConnAck(_connect)))) => {
                         info!("Connected to: {}:{}", opt.address, opt.port);
 
                         for topic in &record.topic {
-                            let subscription = Subscribe::new(topic, QoS::AtLeastOnce);
-                            let _ = requests_tx.send(Request::Subscribe(subscription)).await;
+                            let _ = client.subscribe(topic, QoS::AtLeastOnce);
                         }
                     }
                     Err(e) => {
                         error!("{:?}", e);
-                        if let ConnectionError::Network(_e) = e {
-                            break;
-                        }
+                        break;
                     }
                     _ => {}
                 }
@@ -242,9 +237,9 @@ async fn main() {
             loop {
                 tokio::select! {
                     // メッセージ処理
-                    res = eventloop.poll() => {
+                    res = async { eventloop.recv() } => {
                         match res {
-                            Ok(Event::Incoming(Incoming::Publish(publish))) => {
+                            Ok(Ok(Event::Incoming(Incoming::Publish(publish)))) => {
                                 let topic = &publish.topic;
                                 
                                 let qos = match publish.qos {
@@ -273,19 +268,16 @@ async fn main() {
 
                                 debug!("{:?}", publish);
                             }
-                            Ok(Event::Incoming(Incoming::ConnAck(_connect))) => {
+                            Ok(Ok(Event::Incoming(Incoming::ConnAck(_connect)))) => {
                                 info!("Connected to: {}:{}", opt.address, opt.port);
 
                                 for topic in &irecord.topic {
-                                    let subscription = Subscribe::new(topic, QoS::AtLeastOnce);
-                                    let _ = requests_tx.send(Request::Subscribe(subscription)).await;
+                                    let _ = client.subscribe(topic, QoS::AtLeastOnce);
                                 }
                             }
                             Err(e) => {
                                 error!("{:?}", e);
-                                if let ConnectionError::Network(_e) = e {
-                                    break;
-                                }
+                                break;
                             }
                             _ => {}
                         }

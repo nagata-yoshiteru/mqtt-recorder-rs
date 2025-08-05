@@ -11,11 +11,9 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#rumqttc = {git = "https://github.com/bytebeamio/rumqtt.git", branch = "master"}
 chrono = "0.4"
 log = { version = "0.4"}
-rumqttc = "0.5.0"
-#rumqttc = "0.0.7"
+rumqttc = "0.24.0"
 serde = {version = "1", features = ["derive"]}
 serde_json = "1.0"
 tokio = { version = "1", features = ["full", "macros", "time"]}
