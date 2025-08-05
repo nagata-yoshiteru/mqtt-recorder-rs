@@ -29,12 +29,12 @@ pub fn get_all_topics_file_path(base_dir: &PathBuf, base_timestamp: &str, file_n
     let date_str = now.format("%Y-%m-%d").to_string();
     
     // 全トピック用のディレクトリを作成
-    let all_topics_dir = base_dir.join("all-topics").join(&date_str);
+    let all_topics_dir = base_dir.join("#").join(&date_str);
     
     if file_number == 0 {
-        all_topics_dir.join(format!("mqtt-recorder-all-topics-{}.json", base_timestamp))
+        all_topics_dir.join(format!("mqtt-recorder-#-{}.json", base_timestamp))
     } else {
-        all_topics_dir.join(format!("mqtt-recorder-all-topics-{}-{}.json", base_timestamp, file_number))
+        all_topics_dir.join(format!("mqtt-recorder-#-{}-{}.json", base_timestamp, file_number))
     }
 }
 

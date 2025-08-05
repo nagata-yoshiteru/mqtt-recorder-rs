@@ -13,8 +13,7 @@ use chrono::{Local, Timelike};
 // 内部モジュールをインポート
 use mqtt_recorder_rs::*;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let opt = Opt::from_args();
 
     let now = SystemTime::now()
@@ -60,10 +59,11 @@ async fn main() {
 
     match opt.mode {
         Mode::Replay(replay) => {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             let (stop_tx, stop_rx) = std::sync::mpsc::channel();
 
             // Sends the recorded messages
-            tokio::spawn(async move {
+            rt.spawn(async move {
                 loop {
                     let mut previous = -1.0;
                     
@@ -232,61 +232,60 @@ async fn main() {
                 irecord.stats_interval,
                 !irecord.disable_all_topic_record // 全トピック記録の有効/無効を設定
             );
-            let cleanup_interval = tokio::time::Duration::from_secs(irecord.sec / 2); // クリーンアップは半分の間隔で実行
-            let mut cleanup_timer = tokio::time::interval(cleanup_interval);
+            let cleanup_interval = std::time::Duration::from_secs(irecord.sec / 2);
+            let mut last_cleanup = std::time::Instant::now();
             
             loop {
-                tokio::select! {
-                    // メッセージ処理
-                    res = async { eventloop.recv() } => {
-                        match res {
-                            Ok(Ok(Event::Incoming(Incoming::Publish(publish)))) => {
-                                let topic = &publish.topic;
-                                
-                                let qos = match publish.qos {
-                                    QoS::AtMostOnce => 0,
-                                    QoS::AtLeastOnce => 1,
-                                    QoS::ExactlyOnce => 2,
-                                };
+                let res = eventloop.recv();
 
-                                let msg = MqttMessage {
-                                    time: SystemTime::now()
-                                        .duration_since(SystemTime::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs_f64(),
-                                    retain: publish.retain,
-                                    topic: publish.topic.clone(),
-                                    msg_b64: base64::encode(&*publish.payload),
-                                    qos,
-                                };
+                match res {
+                    Ok(Ok(Event::Incoming(Incoming::Publish(publish)))) => {
+                        let topic = &publish.topic;
+                        
+                        let qos = match publish.qos {
+                            QoS::AtMostOnce => 0,
+                            QoS::AtLeastOnce => 1,
+                            QoS::ExactlyOnce => 2,
+                        };
 
-                                let serialized = serde_json::to_string(&msg).unwrap();
-                                
-                                // 新しい write_message メソッドを使用（統計分析も含む）
-                                if let Err(e) = file_manager.write_message(topic, &serialized) {
-                                    error!("Failed to write message for topic '{}': {:?}", topic, e);
-                                }
+                        let msg = MqttMessage {
+                            time: SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs_f64(),
+                            retain: publish.retain,
+                            topic: publish.topic.clone(),
+                            msg_b64: base64::encode(&*publish.payload),
+                            qos,
+                        };
 
-                                debug!("{:?}", publish);
-                            }
-                            Ok(Ok(Event::Incoming(Incoming::ConnAck(_connect)))) => {
-                                info!("Connected to: {}:{}", opt.address, opt.port);
+                        let serialized = serde_json::to_string(&msg).unwrap();
+                        
+                        // 新しい write_message メソッドを使用（統計分析も含む）
+                        if let Err(e) = file_manager.write_message(topic, &serialized) {
+                            error!("Failed to write message for topic '{}': {:?}", topic, e);
+                        }
 
-                                for topic in &irecord.topic {
-                                    let _ = client.subscribe(topic, QoS::AtLeastOnce);
-                                }
-                            }
-                            Err(e) => {
-                                error!("{:?}", e);
-                                break;
-                            }
-                            _ => {}
+                        debug!("{:?}", publish);
+                    }
+                    Ok(Ok(Event::Incoming(Incoming::ConnAck(_connect)))) => {
+                        info!("Connected to: {}:{}", opt.address, opt.port);
+
+                        for topic in &irecord.topic {
+                            let _ = client.subscribe(topic, QoS::AtLeastOnce);
                         }
                     }
-                    // 定期的なファイルクリーンアップ
-                    _ = cleanup_timer.tick() => {
-                        file_manager.cleanup_timeout_files();
+                    Err(e) => {
+                        error!("{:?}", e);
+                        break;
                     }
+                    _ => {}
+                }
+                
+                // 定期的なファイルクリーンアップを同期的に実行
+                if last_cleanup.elapsed() >= cleanup_interval {
+                    file_manager.cleanup_timeout_files();
+                    last_cleanup = std::time::Instant::now();
                 }
             }
         }
