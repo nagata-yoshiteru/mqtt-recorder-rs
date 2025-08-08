@@ -31,11 +31,8 @@ pub fn get_all_topics_file_path(base_dir: &PathBuf, base_timestamp: &str, file_n
     // 全トピック用のディレクトリを作成
     let all_topics_dir = base_dir.join("#").join(&date_str);
     
-    if file_number == 0 {
-        all_topics_dir.join(format!("mqtt-recorder-#-{}.json", base_timestamp))
-    } else {
-        all_topics_dir.join(format!("mqtt-recorder-#-{}-{}.json", base_timestamp, file_number))
-    }
+    // 常にファイル番号を付ける（-0, -1, -2, ...）
+    all_topics_dir.join(format!("mqtt-recorder-#-{}-{}.json", base_timestamp, file_number))
 }
 
 /// ヘルパー関数：ベースタイムスタンプを使用してファイルパスを生成（ファイル番号付き）
@@ -49,11 +46,8 @@ pub fn get_intelligent_file_path(base_dir: &PathBuf, topic: &str, base_timestamp
     // ファイル名を生成（トピック名も含める）
     let topic_filename = topic_to_path(topic);
     
-    if file_number == 0 {
-        topic_dir.join(format!("mqtt-recorder-{}-{}.json", topic_filename, base_timestamp))
-    } else {
-        topic_dir.join(format!("mqtt-recorder-{}-{}-{}.json", topic_filename, base_timestamp, file_number))
-    }
+    // 常にファイル番号を付ける（-0, -1, -2, ...）
+    topic_dir.join(format!("mqtt-recorder-{}-{}-{}.json", topic_filename, base_timestamp, file_number))
 }
 
 /// インテリジェント記録用のファイル管理構造体
