@@ -76,24 +76,24 @@ Records MQTT messages with topic-based directory organization and intelligent fi
     data/
     ├── all-topics/                                                      # New: Combined recording
     │   └── 2025-07-25/
-    │       ├── mqtt-recorder-all-topics-20250725-100230.json          # All topics combined
+    │       ├── mqtt-recorder-all-topics-20250725-100230-0.json        # First file
     │       ├── mqtt-recorder-all-topics-20250725-100230-1.json        # After 100k messages
-    │       └── mqtt-recorder-all-topics-20250725-103045.json          # After timeout
+    │       └── mqtt-recorder-all-topics-20250725-103045-0.json        # After timeout
     ├── chincha/
     │   └── shimo/
     │       └── 2025-07-25/
-    │           ├── mqtt-recorder-chincha-shimo-20250725-100230.json      # Base file
+    │           ├── mqtt-recorder-chincha-shimo-20250725-100230-0.json    # First file
     │           ├── mqtt-recorder-chincha-shimo-20250725-100230-1.json    # After 100k messages
-    │           ├── mqtt-recorder-chincha-shimo-20250725-103045.json      # After timeout
+    │           ├── mqtt-recorder-chincha-shimo-20250725-103045-0.json    # After timeout
     │           └── mqtt-recorder-chincha-shimo-stats.txt                 # Statistical analysis
     └── sensor/
         ├── temperature/
         │   └── 2025-07-25/
-        │       ├── mqtt-recorder-sensor-temperature-20250725-100515.json
+        │       ├── mqtt-recorder-sensor-temperature-20250725-100515-0.json
         │       └── mqtt-recorder-sensor-temperature-stats.txt
         └── humidity/
             └── 2025-07-25/
-                ├── mqtt-recorder-sensor-humidity-20250725-100630.json
+                ├── mqtt-recorder-sensor-humidity-20250725-100630-0.json
                 ├── mqtt-recorder-sensor-humidity-20250725-100630-1.json
                 └── mqtt-recorder-sensor-humidity-stats.txt
 
