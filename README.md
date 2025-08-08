@@ -24,7 +24,7 @@ ls target/debug
 
 ### for Release
 ```.sh
-cargo rustc --release -- -C link-args=-Wl,-x,-S
+cargo rustc --bin mqtt-recorder-rs --release -- -C link-args=-Wl,-x,-S
 ls target/release
 ```
 
