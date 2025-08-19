@@ -164,6 +164,31 @@ Replays recorded MQTT messages from a directory. Supports time range filtering a
 - **Multiple topic subscription**: Subscribe to multiple topic patterns simultaneously
 - **Flexible topic patterns**: Support for MQTT wildcards (`+` and `#`)
 
+## Converting to CSV
+
+Converts recorded JSON files to CSV format while preserving directory structure. Supports base64 decoding and non-UTF8 message handling.
+
+### Basic conversion:
+    mqtt-recorder-rs convert --input ./data --output ./data_csv
+
+### Example conversion process:
+- Input: `./data/robot/sensor1/2025-08-13/mqtt-recorder-robot-sensor1-20250813-151304-0.json`
+- Output: `./data_csv/robot/sensor1/2025-08-13/mqtt-recorder-robot-sensor1-20250813-151304-0.csv`
+
+### CSV format:
+Each CSV file contains columns:
+- `time`: Unix timestamp with millisecond precision
+- `qos`: MQTT Quality of Service level
+- `retain`: MQTT retain flag (true/false)
+- `topic`: MQTT topic name
+- `msg`: Message payload (UTF-8 text, base64 for binary, or hex for non-UTF8)
+
+### Features:
+- **Directory structure preservation**: Maintains exact input directory hierarchy
+- **Base64 decoding**: Automatically decodes base64-encoded messages when possible
+- **Binary data handling**: Non-UTF8 data is converted to hex representation
+- **Progress logging**: Shows conversion progress for each file
+
 ## Time Format
 
 When using `--start-time` and `--end-time` options, use the format: `YYYY-MM-DD HH:MM`
