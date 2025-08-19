@@ -38,6 +38,10 @@ pub enum Mode {
     // Replay values from an input file
     #[structopt(name = "replay")]
     Replay(ReplayOptions),
+
+    // Convert JSON logs to CSV format
+    #[structopt(name = "convert")]
+    Convert(ConvertOptions),
 }
 
 #[derive(Debug, StructOpt)]
@@ -98,4 +102,15 @@ pub struct ReplayOptions {
         default_value = "false"
     )]
     pub loop_replay: bool,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct ConvertOptions {
+    /// The input directory containing JSON log files
+    #[structopt(short, long, parse(from_os_str))]
+    pub input: PathBuf,
+    
+    /// The output directory for CSV files
+    #[structopt(short, long, parse(from_os_str))]
+    pub output: PathBuf,
 }

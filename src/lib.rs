@@ -3,9 +3,11 @@ pub mod message;
 pub mod file_manager;
 pub mod replay;
 pub mod stats;
+pub mod convert;
 
 pub use config::*;
 pub use message::*;
 pub use file_manager::*;
 pub use replay::*;
 pub use stats::*;
+pub use convert::*;

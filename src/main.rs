@@ -290,5 +290,19 @@ fn main() {
                 }
             }
         }
+        // Enter conversion mode
+        Mode::Convert(convert) => {
+            info!("Starting conversion from {:?} to {:?}", convert.input, convert.output);
+            
+            match convert_json_to_csv(&convert.input, &convert.output) {
+                Ok(()) => {
+                    info!("Conversion completed successfully");
+                }
+                Err(e) => {
+                    error!("Conversion failed: {:?}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }
