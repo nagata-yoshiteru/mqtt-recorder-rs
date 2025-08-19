@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use log::*;
-use csv::Writer;
 use serde::Serialize;
 use crate::MqttMessage;
 
@@ -76,7 +75,9 @@ fn convert_json_file(
     let reader = BufReader::new(input_file);
     
     let output_file = fs::File::create(&output_path)?;
-    let mut csv_writer = Writer::from_writer(output_file);
+    let mut csv_writer = csv::WriterBuilder::new()
+        .quote(b'\'')  // シングルクォートを使用
+        .from_writer(output_file);
     
     let mut record_count = 0;
     let mut error_count = 0;

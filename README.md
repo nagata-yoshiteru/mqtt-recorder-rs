@@ -188,6 +188,7 @@ Each CSV file contains columns:
 - **Base64 decoding**: Automatically decodes base64-encoded messages when possible
 - **Binary data handling**: Non-UTF8 data is converted to hex representation
 - **Progress logging**: Shows conversion progress for each file
+- **JSON-friendly CSV format**: Uses single quotes (`'`) as CSV delimiter to preserve JSON double quotes without escaping
 
 ## Time Format
 
