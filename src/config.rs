@@ -38,6 +38,10 @@ pub enum Mode {
     // Replay values from an input file
     #[structopt(name = "replay")]
     Replay(ReplayOptions),
+
+    // Convert JSON logs to CSV format
+    #[structopt(name = "convert")]
+    Convert(ConvertOptions),
 }
 
 #[derive(Debug, StructOpt)]
@@ -67,6 +71,9 @@ pub struct IntelligentRecordOptions {
     /// Interval in seconds for statistical analysis (default: 60 seconds)
     #[structopt(long, default_value = "60")]
     pub stats_interval: u64,
+    /// Disable recording all topics together in a single file
+    #[structopt(long)]
+    pub disable_all_topic_record: bool,
 }
 
 #[derive(Debug, StructOpt)]
@@ -95,4 +102,15 @@ pub struct ReplayOptions {
         default_value = "false"
     )]
     pub loop_replay: bool,
+}
+
+#[derive(Debug, StructOpt)]
+pub struct ConvertOptions {
+    /// The input directory containing JSON log files
+    #[structopt(short, long, parse(from_os_str))]
+    pub input: PathBuf,
+    
+    /// The output directory for CSV files
+    #[structopt(short, long, parse(from_os_str))]
+    pub output: PathBuf,
 }

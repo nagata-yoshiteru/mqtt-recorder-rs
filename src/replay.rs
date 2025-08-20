@@ -41,8 +41,7 @@ pub fn get_files_in_range(
                 if let Some(time_part) = filename.strip_prefix("mqtt-recorder-") {
                     // 複数のパターンに対応
                     // 1. 標準記録: mqtt-recorder-yyyy-mm-dd-hhmm.json
-                    // 2. インテリジェント記録（番号なし）: mqtt-recorder-{topic}-yyyymmdd-hhmmss.json
-                    // 3. インテリジェント記録（番号付き）: mqtt-recorder-{topic}-yyyymmdd-hhmmss-{number}.json
+                    // 2. インテリジェント記録: mqtt-recorder-{topic}-yyyymmdd-hhmmss-{number}.json (すべて番号付き)
                     
                     // 標準記録のパターン（yyyy-mm-dd-hhmm）
                     if let Ok(file_dt) = NaiveDateTime::parse_from_str(time_part, "%Y-%m-%d-%H%M") {
@@ -57,36 +56,28 @@ pub fn get_files_in_range(
                     }
                     
                     // インテリジェント記録のパターンを処理
-                    // 最後の部分がタイムスタンプかタイムスタンプ-番号かを判定
+                    // すべてのファイルが番号付きになったので、最後が数字であることを前提とする
                     let parts: Vec<&str> = time_part.split('-').collect();
-                    if parts.len() >= 3 {
-                        // 最後の要素が数字かチェック（ファイル番号の可能性）
+                    if parts.len() >= 4 {
                         let last_part = parts[parts.len() - 1];
                         
-                        let timestamp_part = if last_part.chars().all(|c| c.is_ascii_digit()) && parts.len() >= 4 {
+                        // 最後の要素が数字の場合（ファイル番号）
+                        if last_part.chars().all(|c| c.is_ascii_digit()) {
                             // ファイル番号付きのパターン: mqtt-recorder-{topic}-yyyymmdd-hhmmss-{number}
-                            // 最後から2つ目の部分までを結合してタイムスタンプとする
-                            parts[parts.len() - 4..parts.len() - 1].join("-")
-                        } else {
-                            // 番号なしのパターン: mqtt-recorder-{topic}-yyyymmdd-hhmmss
-                            // 最後から2つの部分を結合してタイムスタンプとする
-                            if parts.len() >= 3 {
-                                parts[parts.len() - 2..].join("-")
-                            } else {
-                                return false;
+                            // 最後から3つの部分を結合してタイムスタンプとする
+                            let timestamp_part = parts[parts.len() - 3..parts.len() - 1].join("-");
+                            
+                            // yyyymmdd-hhmmss形式のタイムスタンプをパース
+                            if let Ok(file_dt) = NaiveDateTime::parse_from_str(&timestamp_part, "%Y%m%d-%H%M%S") {
+                                let mut keep = true;
+                                if let Some(start) = start_dt {
+                                    keep &= file_dt >= start;
+                                }
+                                if let Some(end) = end_dt {
+                                    keep &= file_dt <= end;
+                                }
+                                return keep;
                             }
-                        };
-                        
-                        // yyyymmdd-hhmmss形式のタイムスタンプをパース
-                        if let Ok(file_dt) = NaiveDateTime::parse_from_str(&timestamp_part, "%Y%m%d-%H%M%S") {
-                            let mut keep = true;
-                            if let Some(start) = start_dt {
-                                keep &= file_dt >= start;
-                            }
-                            if let Some(end) = end_dt {
-                                keep &= file_dt <= end;
-                            }
-                            return keep;
                         }
                     }
                 }
